@@ -13,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -32,7 +33,7 @@ public class AdminController {
                         user.getId(),
                         user.getUsername(),
                         user.getEmail(),
-                        user.getRole(),
+                        user.getRole().name(),
                         user.getFullName(),
                         user.getActive() == null || user.getActive()
                 ))
@@ -48,5 +49,28 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(new AuthResponse(null, null, null, null, e.getMessage()));
         }
+    }
+
+    @PutMapping("/staff/{id}/password")
+    public ResponseEntity<?> resetUserPassword(@PathVariable Long id, @RequestBody Map<String, String> request) {
+        try {
+            String newPassword = request.get("newPassword");
+            authService.adminResetPassword(id, newPassword);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Password updated successfully",
+                    "userId", id
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/staff/sync-doctors")
+    public ResponseEntity<?> syncDoctorRecords() {
+        int created = authService.syncDoctorRecords();
+        return ResponseEntity.ok(Map.of(
+                "message", "Doctor records sync completed",
+                "created", created
+        ));
     }
 }

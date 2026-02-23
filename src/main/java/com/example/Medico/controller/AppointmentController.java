@@ -3,9 +3,12 @@ package com.example.Medico.controller;
 import com.example.Medico.model.Appointment;
 import com.example.Medico.model.Doctor;
 import com.example.Medico.model.Patient;
+import com.example.Medico.model.User;
 import com.example.Medico.repository.AppointmentRepository;
 import com.example.Medico.repository.DoctorRepository;
 import com.example.Medico.repository.PatientRepository;
+import com.example.Medico.repository.UserRepository;
+import com.example.Medico.security.JwtTokenProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +33,46 @@ public class AppointmentController {
 
     @Autowired
     private DoctorRepository doctorRepo;
+
+    @Autowired
+    private UserRepository userRepo;
+
+    @Autowired
+    private JwtTokenProvider jwtTokenProvider;
+
+    private Optional<Long> resolveDoctorIdFromToken(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return Optional.empty();
+        }
+
+        String token = authHeader.substring(7);
+        String username = jwtTokenProvider.getUsernameFromToken(token);
+
+        Optional<User> userOpt = userRepo.findByUsername(username);
+        if (userOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        User user = userOpt.get();
+        Optional<Doctor> byUsername = doctorRepo.findByNameIgnoreCase(user.getUsername());
+        if (byUsername.isPresent()) {
+            return Optional.of(byUsername.get().getId());
+        }
+
+        if (user.getFullName() != null && !user.getFullName().isBlank()) {
+            Optional<Doctor> byFullName = doctorRepo.findByNameIgnoreCase(user.getFullName());
+            if (byFullName.isPresent()) {
+                return Optional.of(byFullName.get().getId());
+            }
+        }
+
+        // Self-heal legacy data: create doctor record if missing for DOCTOR user.
+        Doctor doctor = new Doctor();
+        doctor.setName(user.getUsername());
+        doctor.setSpecialization("General");
+        Doctor saved = doctorRepo.save(doctor);
+        return Optional.of(saved.getId());
+    }
 
     // 1. View All Appointments 
     @GetMapping
@@ -69,8 +112,25 @@ public class AppointmentController {
     // 3. Get Appointments by Doctor
     @GetMapping("/doctor/{doctorId}")
     @PreAuthorize("hasAnyRole('DOCTOR', 'RECEPTIONIST')")
-    public ResponseEntity<?> getAppointmentsByDoctor(@PathVariable Long doctorId) {
+    public ResponseEntity<?> getAppointmentsByDoctor(
+            @PathVariable Long doctorId,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
         try {
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                String role = jwtTokenProvider.getRoleFromToken(authHeader.substring(7));
+                if ("DOCTOR".equals(role)) {
+                    Optional<Long> currentDoctorId = resolveDoctorIdFromToken(authHeader);
+                    if (currentDoctorId.isEmpty()) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                .body(Map.of("error", "Doctor account is not linked to a doctor record"));
+                    }
+                    if (!currentDoctorId.get().equals(doctorId)) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                .body(Map.of("error", "Doctors can only view appointments assigned to themselves"));
+                    }
+                }
+            }
+
             Optional<Doctor> doctor = doctorRepo.findById(doctorId);
             if (doctor.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -121,11 +181,22 @@ public class AppointmentController {
             boolean conflict = appointmentRepo.findAll().stream()
                     .anyMatch(a -> a.getDoctorId().equals(doctorId) && 
                                a.getAppointmentTime().equals(appointmentTime) &&
-                               a.getStatus().equals("BOOKED"));
+                               ("BOOKED".equals(a.getStatus()) || "BLOCK".equals(a.getStatus())));
             
             if (conflict) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("error", "Time slot already booked for this doctor"));
+                        .body(Map.of("error", "Time slot is not available for this doctor"));
+            }
+
+            // Same patient cannot have two appointments at the same slot
+            boolean patientConflict = appointmentRepo.findAll().stream()
+                    .anyMatch(a -> a.getPatient() != null &&
+                            a.getPatient().getId().equals(patientId) &&
+                            a.getAppointmentTime().equals(appointmentTime) &&
+                            "BOOKED".equals(a.getStatus()));
+            if (patientConflict) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("error", "Patient already has an appointment in this time slot"));
             }
             
             // Create appointment
@@ -180,7 +251,9 @@ public class AppointmentController {
     // 6. Block Time Slot (Doctor Action)
     @PostMapping("/block")
     @PreAuthorize("hasRole('DOCTOR')")
-    public ResponseEntity<?> blockSlot(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<?> blockSlot(
+            @RequestBody Map<String, Object> request,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
         try {
             if (!request.containsKey("doctorId") || !request.containsKey("appointmentTime")) {
                 return ResponseEntity.badRequest()
@@ -195,6 +268,25 @@ public class AppointmentController {
             if (doctor.isEmpty()) {
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "Doctor not found"));
+            }
+
+            Optional<Long> currentDoctorId = resolveDoctorIdFromToken(authHeader);
+            if (currentDoctorId.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", "Doctor account is not linked to a doctor record"));
+            }
+            if (!currentDoctorId.get().equals(doctorId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", "Doctors can only block their own slots"));
+            }
+
+            boolean conflict = appointmentRepo.findAll().stream()
+                    .anyMatch(a -> a.getDoctorId().equals(doctorId) &&
+                            a.getAppointmentTime().equals(appointmentTime) &&
+                            ("BOOKED".equals(a.getStatus()) || "BLOCK".equals(a.getStatus())));
+            if (conflict) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("error", "Time slot is already booked or blocked"));
             }
             
             // Create blocked slot

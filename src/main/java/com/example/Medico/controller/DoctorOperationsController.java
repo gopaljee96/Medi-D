@@ -18,6 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -253,7 +254,17 @@ public class DoctorOperationsController {
             }
 
             User user = userOpt.get();
-            Optional<Doctor> doctorOpt = doctorRepository.findByName(user.getUsername());
+            Optional<Doctor> doctorOpt = doctorRepository.findByNameIgnoreCase(user.getUsername());
+            if (doctorOpt.isEmpty() && user.getFullName() != null && !user.getFullName().isBlank()) {
+                doctorOpt = doctorRepository.findByNameIgnoreCase(user.getFullName());
+            }
+            if (doctorOpt.isEmpty()) {
+                // Self-heal legacy data: ensure each DOCTOR user has a doctor record.
+                Doctor doctor = new Doctor();
+                doctor.setName(user.getUsername());
+                doctor.setSpecialization("General");
+                doctorOpt = Optional.of(doctorRepository.save(doctor));
+            }
 
             Map<String, Object> response = new HashMap<>();
             response.put("userId", user.getId());
@@ -272,6 +283,49 @@ public class DoctorOperationsController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to fetch doctor profile", "details", e.getMessage()));
+        }
+    }
+
+    /**
+     * PUT /api/doctor/patient/{patientId}/history
+     * Append doctor notes/diagnosis to patient's medical history.
+     * Requires: DOCTOR role
+     */
+    @PutMapping("/patient/{patientId}/history")
+    @PreAuthorize("hasRole('DOCTOR')")
+    public ResponseEntity<?> updatePatientHistory(
+            @PathVariable Long patientId,
+            @RequestBody Map<String, Object> request) {
+        try {
+            Optional<Patient> patientOpt = patientRepository.findById(patientId);
+            if (patientOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Patient not found with ID: " + patientId));
+            }
+
+            String note = request.get("note") != null ? request.get("note").toString().trim() : "";
+            if (note.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "History note is required"));
+            }
+
+            Patient patient = patientOpt.get();
+            String existingHistory = patient.getMedicalHistory() != null ? patient.getMedicalHistory().trim() : "";
+            String timestamp = LocalDateTime.now().toString();
+            String entry = "[" + timestamp + "] Doctor Note: " + note;
+            String updatedHistory = existingHistory.isEmpty() ? entry : existingHistory + "\n" + entry;
+
+            patient.setMedicalHistory(updatedHistory);
+            patientRepository.save(patient);
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Patient history updated successfully",
+                    "patientId", patient.getId(),
+                    "medicalHistory", updatedHistory
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to update patient history", "details", e.getMessage()));
         }
     }
 }

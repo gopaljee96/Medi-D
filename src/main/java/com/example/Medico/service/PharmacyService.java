@@ -52,8 +52,8 @@ public class PharmacyService {
     @Transactional(rollbackFor = Exception.class)
     public void doDispenseTransactional(Long prescriptionId) throws Exception {
 
-        Prescription prescription = prescriptionRepo.findById(prescriptionId)
-                .orElseThrow(() -> new RuntimeException("Prescription not found"));
+        Prescription prescription = prescriptionRepo.findByIdWithLock(prescriptionId)
+            .orElseThrow(() -> new RuntimeException("Prescription not found"));
 
         if ("DISPENSED".equals(prescription.getStatus())) {
             throw new RuntimeException("Already dispensed!");

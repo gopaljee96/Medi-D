@@ -32,9 +32,10 @@ public class User {
     @NotBlank(message = "Password is required")
     private String password; // This will be hashed with BCrypt
 
-    // Store the role (RECEPTIONIST, DOCTOR, PHARMACIST)
-    @NotBlank(message = "Role is required")
-    private String role;
+    // Store the role using Enum for type safety
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private UserRole role;
 
     // Full name (for display)
     private String fullName;
