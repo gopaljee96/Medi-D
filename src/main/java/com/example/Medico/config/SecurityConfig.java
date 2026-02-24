@@ -28,11 +28,17 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/api/auth/login", "/api/auth/register-temp", "/api/doctor/medicines", "/error", "/h2-console/**").permitAll()
+                        // Public endpoints
+                        .requestMatchers("/", "/api/auth/login", "/api/auth/register", "/api/auth/register-temp", "/api/doctors", "/api/doctor/medicines", "/error", "/h2-console/**").permitAll()
+                        // Admin endpoints
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/pharmacy/**").hasRole("PHARMACIST")
                         .requestMatchers("/api/doctor/**").hasRole("DOCTOR")
-                        .requestMatchers("/api/patients/**", "/api/appointments/**").hasAnyRole("RECEPTIONIST", "DOCTOR")
+                        // Admin, Receptionist, and Doctor can access appointments
+                        .requestMatchers("/api/appointments/**").hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR")
+                        // Receptionist and Doctor can manage patients
+                        .requestMatchers("/api/patients/**").hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR")
+                        // All other requests require authentication
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

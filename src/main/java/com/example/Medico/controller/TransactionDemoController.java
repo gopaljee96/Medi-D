@@ -24,7 +24,7 @@ public class TransactionDemoController {
     @Autowired
     private PatientDoctorService patientDoctorService;
 
-    // ============= ANNOTATED TRANSACTION EXAMPLES =============
+
 
     /**
      * Add patient using @Transactional annotation (Declarative)

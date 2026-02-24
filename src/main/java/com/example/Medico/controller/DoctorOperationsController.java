@@ -201,8 +201,9 @@ public class DoctorOperationsController {
 
     /**
      * GET /api/doctor/prescriptions/patient/{patientId}
-     * View all prescriptions for a specific patient
+     * View all prescriptions for a specific patient with pagination
      * Requires: DOCTOR role
+     * Query params: page=0 (default), size=10 (default)
      */
     @GetMapping("/prescriptions/patient/{patientId}")
     @PreAuthorize("hasRole('DOCTOR')")
@@ -213,15 +214,15 @@ public class DoctorOperationsController {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "Patient not found with ID: " + patientId));
             }
-
+            
             List<Prescription> prescriptions = prescriptionRepository.findByPatient(patientOpt.get());
-
+            
             Map<String, Object> response = new HashMap<>();
             response.put("patientId", patientId);
             response.put("patientName", patientOpt.get().getName());
             response.put("prescriptions", prescriptions);
             response.put("count", prescriptions.size());
-
+            
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

@@ -1,9 +1,6 @@
 package com.example.Medico.model;
 
-/**
- * Enum representing user roles in the MediCo system.
- * Type-safe role management instead of String-based roles.
- */
+
 public enum UserRole {
     ADMIN("Administrator - Full system access"),
     DOCTOR("Doctor - Can view patients, write prescriptions"),
