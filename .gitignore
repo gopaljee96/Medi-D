@@ -31,3 +31,9 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Ignore all markdown files
+*.md
+
+# But keep README
+!README.md
